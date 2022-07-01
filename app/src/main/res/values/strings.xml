@@ -1,3 +1,11 @@
-<resources>
-    <string name="app_name">AndroidSampleCode1</string>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="app_name" tools:ignore="Typos">AndroidSampleCode1</string>
+    <string name="main_activity">Main Activity</string>
+    <string name="next_activity">Next Activity</string>
+    <string name="next_activity_letslide">Next Activity 左滑</string>
+    <string name="next_activity_close_myself">Next Activity 且關閉自己</string>
+    <string name="second_activity">Second Activity</string>
+    <string name="backto_main_activity">回 Main Activity</string>
+    <string name="left_slide_main_activity">右滑回 Main Activity</string>
+    <string name="create_and_back_to_main_activity">Create and BACK to Main Activity</string>
 </resources>
