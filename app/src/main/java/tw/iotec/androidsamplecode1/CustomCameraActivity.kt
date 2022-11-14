@@ -8,7 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.*
 import android.hardware.camera2.*
 import android.hardware.camera2.params.StreamConfigurationMap
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.media.Image
 import android.media.ImageReader
 import android.net.Uri
@@ -265,6 +265,7 @@ class CustomCameraActivity : AppCompatActivity() {
             captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)  // preview camera
             captureRequestBuilder.addTarget(previewSurface)
 
+            @Suppress("DEPRECATION")
             cameraDevice.createCaptureSession(listOf(previewSurface, imageReader.surface), object : CameraCaptureSession.StateCallback() {
                 override fun onConfigureFailed(session: CameraCaptureSession) {
                     Log.e(tag,"Capture configure failed.")
