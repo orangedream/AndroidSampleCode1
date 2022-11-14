@@ -8,9 +8,11 @@ import android.content.pm.PackageManager
 import android.graphics.*
 import android.hardware.camera2.*
 import android.hardware.camera2.params.StreamConfigurationMap
+import android.media.ExifInterface
 import android.media.Image
 import android.media.ImageReader
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -27,6 +29,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.io.ByteArrayInputStream
 
 
 const val CAMERA_PERMISSION_REQUEST = 12345
@@ -45,7 +48,7 @@ class CustomCameraActivity : AppCompatActivity() {
     private lateinit var cameraCaptureSession: CameraCaptureSession
     private lateinit var imageReader: ImageReader
     private lateinit var previewSize: Size
-    private var orientations : SparseIntArray = SparseIntArray(4).apply {
+    private var rotationToDegree : SparseIntArray = SparseIntArray(4).apply {
         append(Surface.ROTATION_0, 0)
         append(Surface.ROTATION_90, 90)
         append(Surface.ROTATION_180, 180)
@@ -98,7 +101,8 @@ class CustomCameraActivity : AppCompatActivity() {
                 override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
                     setupCamera()
                 }
-                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
+                override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+                }
                 override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
                     return true
                 }
@@ -146,17 +150,27 @@ class CustomCameraActivity : AppCompatActivity() {
                 buffer.rewind()
                 val data = ByteArray(buffer.capacity())
                 buffer.get(data)
+
+                // some orientation info could be in EXIF info
+                val exifInterface = ExifInterface(ByteArrayInputStream(data))
+                val orientation = exifInterface.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)
+                var rotationDegrees = 0
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> rotationDegrees = -90  // reverse rotation
+                    ExifInterface.ORIENTATION_ROTATE_180 -> rotationDegrees = -180
+                    ExifInterface.ORIENTATION_ROTATE_270 -> rotationDegrees = -270
+                }
+
                 val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size)
-
-                Log.d(tag, "bitmap.width :  " + bitmap.width)
-                Log.d(tag, "bitmap.height:  " + bitmap.height)
-
                 if (bitmap == null)
                     Log.e(tag, "bitmap is null")
                 else {
                     // rotate bitmap
                     val matrix = Matrix()
-                    matrix.postRotate(90F)
+
+                    // rotate bitmap according to EXIF orientation info
+                    matrix.postRotate(rotationDegrees.toFloat())
+
                     val scaledBitmap = Bitmap.createScaledBitmap(bitmap, bitmap.width, bitmap.width, true)
                     val newBitmap = Bitmap.createBitmap(scaledBitmap,0,0,scaledBitmap.width,scaledBitmap.height,matrix,true)
 
@@ -165,21 +179,29 @@ class CustomCameraActivity : AppCompatActivity() {
                     }
                 }
             } catch (e:Exception) {
-                Log.d(tag,"photo capture error: $e")
+                Log.e(tag,"photo capture error: $e")
             }
             image?.close()
         }
 
     @SuppressLint("MissingPermission")
     private fun takePhoto() {
+        Log.d(tag,"Taking photo...")
         captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
         captureRequestBuilder.addTarget(imageReader.surface)
-        val rotation = windowManager.defaultDisplay.rotation
-        Log.d(tag,"rotation : $rotation")
-//        captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, orientations.get(rotation))
-        captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation(cameraCharacteristics, rotation))
-//        captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, 180)
-        captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+
+        // acquire display rotation
+        val rotation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            baseContext.display?.rotation
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.rotation
+        }
+
+        // fix rotation by sensorOrientation
+        captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, fixSensorOrientation(cameraCharacteristics, rotation!!))
+
+        captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
         cameraCaptureSession.capture(captureRequestBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
 
             override fun onCaptureStarted(
@@ -188,7 +210,7 @@ class CustomCameraActivity : AppCompatActivity() {
                 timestamp: Long,
                 frameNumber: Long
             ) {
-                Log.d(tag,"onCaptureStarted")
+                Log.v(tag,"onCaptureStarted")
             }
 
             override fun onCaptureProgressed(
@@ -196,7 +218,7 @@ class CustomCameraActivity : AppCompatActivity() {
                 request: CaptureRequest,
                 partialResult: CaptureResult
             ) {
-                Log.d(tag,"onCaptureProgressed")
+                Log.v(tag,"onCaptureProgressed")
             }
 
             override fun onCaptureCompleted(
@@ -204,28 +226,25 @@ class CustomCameraActivity : AppCompatActivity() {
                 request: CaptureRequest,
                 result: TotalCaptureResult
             ) {
-                Log.d(tag,"onCaptureCompleted")
+                Log.v(tag,"onCaptureCompleted")
             }
         }, null)
 
     }
 
     // Orientation calculation
-    private fun getJpegOrientation(c: CameraCharacteristics, orientation: Int): Int {
-        var deviceOrientation = orientation
+    private fun fixSensorOrientation(c: CameraCharacteristics, orientation: Int): Int {
+        var deviceOrientation = rotationToDegree[orientation]
         if (deviceOrientation == OrientationEventListener.ORIENTATION_UNKNOWN) return 0
         val sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION)!!
-        Log.d(tag,"device orientation : $deviceOrientation")
-        Log.d(tag,"sensorOrientation : $sensorOrientation")
+
         // Round device orientation to a multiple of 90
         deviceOrientation = (deviceOrientation + 45) / 90 * 90
-        Log.d(tag,"device orientation' : $deviceOrientation")
 
         // Reverse device orientation for front-facing cameras
         val facingFront =
             c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
         if (facingFront) deviceOrientation = -deviceOrientation
-        Log.d(tag,"device orientation'' : $deviceOrientation")
 
         // Calculate desired JPEG orientation relative to camera orientation to make
         // the image upright relative to the device orientation
@@ -234,7 +253,7 @@ class CustomCameraActivity : AppCompatActivity() {
 
     private val cameraStateCallback = object : CameraDevice.StateCallback() {
         override fun onOpened(camera: CameraDevice) {
-            Log.d(tag,"Camera opened.")
+            Log.v(tag,"Camera opened.")
 
             cameraDevice = camera
             cameraInitialized = true
@@ -243,7 +262,7 @@ class CustomCameraActivity : AppCompatActivity() {
             surfaceTexture?.setDefaultBufferSize(previewSize.width, previewSize.height)
             val previewSurface = Surface(surfaceTexture)
 
-            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)  // preview camera
             captureRequestBuilder.addTarget(previewSurface)
 
             cameraDevice.createCaptureSession(listOf(previewSurface, imageReader.surface), object : CameraCaptureSession.StateCallback() {
@@ -252,7 +271,7 @@ class CustomCameraActivity : AppCompatActivity() {
 
                 }
                 override fun onConfigured(session: CameraCaptureSession) {
-                    Log.d(tag,"Capture configured.")
+                    Log.v(tag,"Capture configured.")
 
                     cameraCaptureSession = session
 
@@ -267,7 +286,7 @@ class CustomCameraActivity : AppCompatActivity() {
         }
 
         override fun onDisconnected(camera: CameraDevice) {
-            Log.d(tag,"Camera disconnected.")
+            Log.v(tag,"Camera disconnected.")
             cameraInitialized = false
         }
 
