@@ -48,6 +48,23 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Intellij project files
+*.iml
+*.ipr
+*.iws
+.idea/
+.gradle/
+app/.gradle/
+.idea/libraries
+.idea/workspace.xml
+.idea/vcs.xml
+.idea/scopes/scope_setting.xml
+.idea/moudles.xml
+.idea/misc.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/inspectionProfiles/profiles_setting.xml
+.idea/encodings.xml
+.idea/.name
 
 # Gradle generated files
 .gradle/
